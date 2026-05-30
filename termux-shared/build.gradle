@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
 apply plugin: 'maven-publish'
 
 android {
@@ -8,6 +9,7 @@ android {
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
 
     dependencies {
+        implementation "org.jetbrains.kotlin:kotlin-stdlib:2.0.21"
         implementation "androidx.appcompat:appcompat:1.6.1"
         implementation "androidx.annotation:annotation:1.9.0"
         implementation "androidx.core:core:1.13.1"
@@ -60,6 +62,9 @@ android {
 
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 
     externalNativeBuild {
