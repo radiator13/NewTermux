@@ -11,10 +11,7 @@ import android.os.ParcelFileDescriptor;
 
 import java.io.File;
 import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -134,10 +131,12 @@ public final class TerminalSession extends TerminalOutput {
         new Thread("TermSessionInputReader[pid=" + mShellPid + "]") {
             @Override
             public void run() {
-                try (InputStream termIn = new FileInputStream(terminalFileDescriptorWrapped)) {
+                try {
                     final byte[] buffer = new byte[4096];
                     while (true) {
-                        int read = termIn.read(buffer);
+                        // Use Os.read() directly instead of FileInputStream.read().
+                        // Same nterp interpreter crash avoidance as the output writer.
+                        int read = Os.read(terminalFileDescriptorWrapped, buffer, 0, buffer.length);
                         if (read == -1) return;
                         if (!RustJNI.termByteQueueWrite(mProcessToTerminalIOQueue, buffer, 0, read)) return;
                         mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
@@ -152,14 +151,18 @@ public final class TerminalSession extends TerminalOutput {
             @Override
             public void run() {
                 final byte[] buffer = new byte[4096];
-                try (FileOutputStream termOut = new FileOutputStream(terminalFileDescriptorWrapped)) {
+                try {
                     while (true) {
                         int bytesToWrite = RustJNI.termByteQueueRead(mTerminalToProcessIOQueue, buffer, buffer.length, true);
                         if (bytesToWrite == -1) return;
-                        termOut.write(buffer, 0, bytesToWrite);
+                        // Use Os.write() directly instead of FileOutputStream.write().
+                        // FileOutputStream.write() goes through ART's nterp interpreter which
+                        // crashes on this device due to corrupted boot.art dalvik-cache
+                        // (version mismatch: expected 0x32363500, got 0x32353900).
+                        Os.write(terminalFileDescriptorWrapped, buffer, 0, bytesToWrite);
                     }
-                } catch (IOException e) {
-                    // Ignore.
+                } catch (Exception e) {
+                    // Ignore, just shutting down.
                 }
             }
         }.start();
