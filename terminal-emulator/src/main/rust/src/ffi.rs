@@ -1131,6 +1131,7 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorComputeDra
 /// JNI bridge: key_handler get_code
 /// Returns a byte array (jbyteArray) containing the escape sequence, or null if no mapping.
 #[no_mangle]
+#[export_name = "Java_com_termux_terminal_RustJNI_termKeyHandlerGetCode"]
 pub extern "C" fn term_key_handler_get_code(
     env: *mut core::ffi::c_void,
     _cls: *mut core::ffi::c_void,
