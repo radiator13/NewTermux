@@ -103,6 +103,7 @@ android {
         // Fake shell — all Settings/toolbar/drawer/Text Expansion UI works; no real commands run.
         demo {
             initWith debug
+            debuggable = false  // Disable CheckJNI — it causes SIGSEGV in Linux_readBytes
             applicationIdSuffix ".demo"
             buildConfigField "boolean", "IS_DEMO", "true"
             matchingFallbacks = ['debug']  // library submodules don't have 'demo', fall back to debug

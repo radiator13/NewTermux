@@ -7,13 +7,14 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 
+import android.os.ParcelFileDescriptor;
+
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -315,22 +316,22 @@ public final class TerminalSession extends TerminalOutput {
     }
 
     private static FileDescriptor wrapFileDescriptor(int fileDescriptor, TerminalSessionClient client) {
-        FileDescriptor result = new FileDescriptor();
         try {
-            Field descriptorField;
-            try {
-                descriptorField = FileDescriptor.class.getDeclaredField("descriptor");
-            } catch (NoSuchFieldException e) {
-                // For desktop java:
-                descriptorField = FileDescriptor.class.getDeclaredField("fd");
-            }
-            descriptorField.setAccessible(true);
-            descriptorField.set(result, fileDescriptor);
-        } catch (NoSuchFieldException | IllegalAccessException | IllegalArgumentException e) {
-            Logger.logStackTraceWithMessage(client, LOG_TAG, "Error accessing FileDescriptor#descriptor private field", e);
+            // Use ParcelFileDescriptor API instead of reflection to properly initialize
+            // the FileDescriptor object. Reflection-based field setting triggers CheckJNI
+            // aborts on Android 16 because the FileDescriptor internals are not properly
+            // initialized (missing mOwner etc.), causing SIGSEGV in Linux_readBytes.
+            ParcelFileDescriptor pfd = ParcelFileDescriptor.adoptFd(fileDescriptor);
+            FileDescriptor result = pfd.getFileDescriptor();
+            // Detach so ParcelFileDescriptor doesn't close our fd on finalization.
+            // We manage the fd lifecycle explicitly via JNI.close().
+            pfd.detachFd();
+            return result;
+        } catch (Exception e) {
+            Logger.logStackTraceWithMessage(client, LOG_TAG, "Error wrapping file descriptor", e);
             System.exit(1);
+            return null; // unreachable
         }
-        return result;
     }
 
     @SuppressLint("HandlerLeak")
