@@ -39,14 +39,14 @@ public final class TerminalSession extends TerminalOutput {
 
     /**
      * A queue written to from a separate thread when the process outputs, and read by main thread to process by
-     * terminal emulator.
+     * terminal emulator. Implemented in Rust via RustJNI.
      */
-    final ByteQueue mProcessToTerminalIOQueue = new ByteQueue(64 * 1024);
+    final long mProcessToTerminalIOQueue = RustJNI.termByteQueueNew(64 * 1024);
     /**
      * A queue written to from the main thread due to user interaction, and read by another thread which forwards by
-     * writing to the {@link #mTerminalFileDescriptor}.
+     * writing to the {@link #mTerminalFileDescriptor}. Implemented in Rust via RustJNI.
      */
-    final ByteQueue mTerminalToProcessIOQueue = new ByteQueue(4096);
+    final long mTerminalToProcessIOQueue = RustJNI.termByteQueueNew(4096);
     /** Buffer to write translate code points into utf8 before writing to mTerminalToProcessIOQueue */
     private final byte[] mUtf8InputBuffer = new byte[5];
 
@@ -138,7 +138,7 @@ public final class TerminalSession extends TerminalOutput {
                     while (true) {
                         int read = termIn.read(buffer);
                         if (read == -1) return;
-                        if (!mProcessToTerminalIOQueue.write(buffer, 0, read)) return;
+                        if (!RustJNI.termByteQueueWrite(mProcessToTerminalIOQueue, buffer, 0, read)) return;
                         mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
                     }
                 } catch (Exception e) {
@@ -153,7 +153,7 @@ public final class TerminalSession extends TerminalOutput {
                 final byte[] buffer = new byte[4096];
                 try (FileOutputStream termOut = new FileOutputStream(terminalFileDescriptorWrapped)) {
                     while (true) {
-                        int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
+                        int bytesToWrite = RustJNI.termByteQueueRead(mTerminalToProcessIOQueue, buffer, buffer.length, true);
                         if (bytesToWrite == -1) return;
                         termOut.write(buffer, 0, bytesToWrite);
                     }
@@ -176,7 +176,7 @@ public final class TerminalSession extends TerminalOutput {
     /** Write data to the shell process. */
     @Override
     public void write(byte[] data, int offset, int count) {
-        if (mShellPid > 0) mTerminalToProcessIOQueue.write(data, offset, count);
+        if (mShellPid > 0) RustJNI.termByteQueueWrite(mTerminalToProcessIOQueue, data, offset, count);
     }
 
     /** Write the Unicode code point to the terminal encoded in UTF-8. */
@@ -250,8 +250,8 @@ public final class TerminalSession extends TerminalOutput {
         }
 
         // Stop the reader and writer threads, and close the I/O streams
-        mTerminalToProcessIOQueue.close();
-        mProcessToTerminalIOQueue.close();
+        RustJNI.termByteQueueClose(mTerminalToProcessIOQueue);
+        RustJNI.termByteQueueClose(mProcessToTerminalIOQueue);
         JNI.close(mTerminalFileDescriptor);
     }
 
@@ -340,9 +340,17 @@ public final class TerminalSession extends TerminalOutput {
 
         @Override
         public void handleMessage(Message msg) {
-            int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
+            int bytesRead = RustJNI.termByteQueueRead(mProcessToTerminalIOQueue, mReceiveBuffer, mReceiveBuffer.length, false);
             if (bytesRead > 0) {
                 mEmulator.append(mReceiveBuffer, bytesRead);
+                int flags = mEmulator.getLastFlags();
+                if ((flags & 1) != 0) mClient.onBell(TerminalSession.this);
+                if ((flags & 2) != 0) mClient.onTitleChanged(TerminalSession.this);
+                if ((flags & 4) != 0) {
+                    mEmulator.syncColorsFromRust();
+                    mClient.onColorsChanged(TerminalSession.this);
+                }
+                if ((flags & 8) != 0) mClient.onTerminalCursorStateChange(true);
                 notifyScreenUpdate();
             }
 

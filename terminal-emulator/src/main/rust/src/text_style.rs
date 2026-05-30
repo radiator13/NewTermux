@@ -126,9 +126,8 @@ mod tests {
 
     #[test]
     fn test_combined_effects() {
-        let combined = CHARACTER_ATTRIBUTE_BOLD
-            | CHARACTER_ATTRIBUTE_ITALIC
-            | CHARACTER_ATTRIBUTE_UNDERLINE;
+        let combined =
+            CHARACTER_ATTRIBUTE_BOLD | CHARACTER_ATTRIBUTE_ITALIC | CHARACTER_ATTRIBUTE_UNDERLINE;
         let style = encode(1, 2, combined);
         assert_eq!(decode_effect(style), combined);
         assert_eq!(decode_fore_color(style), 1);
@@ -209,7 +208,9 @@ mod tests {
         // decode_effect returns all 11 lower bits: 9 effect flags + 2 truecolor flags
         assert_eq!(
             decode_effect(style),
-            CHARACTER_ATTRIBUTE_BOLD | CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND | CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND
+            CHARACTER_ATTRIBUTE_BOLD
+                | CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND
+                | CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND
         );
     }
 
@@ -232,7 +233,9 @@ mod tests {
         // decode_effect includes the truecolor bits for fg+bg
         assert_eq!(
             decode_effect(style),
-            all_flags | CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND | CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND
+            all_flags
+                | CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND
+                | CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND
         );
     }
 
@@ -290,11 +293,7 @@ mod tests {
     #[test]
     fn test_truecolor_detection() {
         // 0xff000000 triggers truecolor path
-        let tc = encode(
-            TRUECOLOR_MARKER | 0x123456,
-            TRUECOLOR_MARKER | 0x789abc,
-            0,
-        );
+        let tc = encode(TRUECOLOR_MARKER | 0x123456, TRUECOLOR_MARKER | 0x789abc, 0);
         // Should decode as truecolor
         assert_eq!(decode_fore_color(tc), TRUECOLOR_MARKER | 0x123456);
         assert_eq!(decode_back_color(tc), TRUECOLOR_MARKER | 0x789abc);

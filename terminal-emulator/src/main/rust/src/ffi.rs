@@ -72,10 +72,8 @@ pub extern "C" fn term_emulator_free(emulator: *mut TerminalEmulator) {
     if emulator.is_null() {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let _ = Box::from_raw(emulator);
-        }
+    catch_unwind_or(|| unsafe {
+        let _ = Box::from_raw(emulator);
     });
 }
 
@@ -94,11 +92,9 @@ pub extern "C" fn term_emulator_process_bytes(
     if emulator.is_null() || bytes.is_null() || len <= 0 {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let slice = std::slice::from_raw_parts(bytes, len as usize);
-            (*emulator).process_bytes(slice);
-        }
+    catch_unwind_or(|| unsafe {
+        let slice = std::slice::from_raw_parts(bytes, len as usize);
+        (*emulator).process_bytes(slice);
     });
 }
 
@@ -117,11 +113,9 @@ pub extern "C" fn term_emulator_get_output(
     if emulator.is_null() || buf.is_null() || max_len <= 0 {
         return 0;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let out_slice = std::slice::from_raw_parts_mut(buf, max_len as usize);
-            (*emulator).get_output(out_slice)
-        }
+    catch_unwind_or(|| unsafe {
+        let out_slice = std::slice::from_raw_parts_mut(buf, max_len as usize);
+        (*emulator).get_output(out_slice)
     })
 }
 
@@ -322,9 +316,7 @@ pub extern "C" fn term_emulator_get_title(
 
 /// Check if mouse tracking is active (DECSET 1000 or 1002).
 #[no_mangle]
-pub extern "C" fn term_emulator_is_mouse_tracking_active(
-    emulator: *mut TerminalEmulator,
-) -> bool {
+pub extern "C" fn term_emulator_is_mouse_tracking_active(emulator: *mut TerminalEmulator) -> bool {
     if emulator.is_null() {
         return false;
     }
@@ -373,10 +365,8 @@ pub extern "C" fn term_byte_queue_free(queue: *mut ByteQueue) {
     if queue.is_null() {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let _ = Box::from_raw(queue);
-        }
+    catch_unwind_or(|| unsafe {
+        let _ = Box::from_raw(queue);
     });
 }
 
@@ -400,11 +390,9 @@ pub extern "C" fn term_byte_queue_write(
     if queue.is_null() || buf.is_null() || length <= 0 || offset < 0 {
         return false;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let slice = std::slice::from_raw_parts(buf, (offset + length) as usize);
-            (*queue).write(slice, offset as usize, length as usize)
-        }
+    catch_unwind_or(|| unsafe {
+        let slice = std::slice::from_raw_parts(buf, (offset + length) as usize);
+        (*queue).write(slice, offset as usize, length as usize)
     })
 }
 
@@ -429,11 +417,9 @@ pub extern "C" fn term_byte_queue_read(
     if queue.is_null() || buf.is_null() || max_len <= 0 {
         return 0;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let out = std::slice::from_raw_parts_mut(buf, max_len as usize);
-            (*queue).read(out, block)
-        }
+    catch_unwind_or(|| unsafe {
+        let out = std::slice::from_raw_parts_mut(buf, max_len as usize);
+        (*queue).read(out, block)
     })
 }
 
@@ -449,10 +435,8 @@ pub extern "C" fn term_byte_queue_close(queue: *mut ByteQueue) {
     if queue.is_null() {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            (*queue).close();
-        }
+    catch_unwind_or(|| unsafe {
+        (*queue).close();
     });
 }
 
@@ -523,20 +507,31 @@ pub extern "C" fn term_emulator_compute_draw_runs(
                 // Mark as clean (we need mutable access — get it via the lines vec)
                 // SAFETY: We're only setting the dirty flag to false, which doesn't
                 // affect any data we're currently reading.
-                let line_mut = screen.lines.as_ptr().add(internal_row as usize) as *mut Option<crate::terminal_row::TerminalRow>;
+                let line_mut = screen.lines.as_ptr().add(internal_row as usize)
+                    as *mut Option<crate::terminal_row::TerminalRow>;
                 if let Some(ref mut row_data) = *line_mut {
                     row_data.dirty = false;
                 }
 
                 let text = &line.text;
                 let space_used = line.space_used() as usize;
-                let line_cursor_x = if row == cursor_row && cursor_visible { cursor_col } else { -1 };
+                let line_cursor_x = if row == cursor_row && cursor_visible {
+                    cursor_col
+                } else {
+                    -1
+                };
 
                 let mut selx1 = -1i32;
                 let mut selx2 = -1i32;
                 if row >= selection_y1 && row <= selection_y2 {
-                    if row == selection_y1 { selx1 = selection_x1; }
-                    selx2 = if row == selection_y2 { selection_x2 } else { columns };
+                    if row == selection_y1 {
+                        selx1 = selection_x1;
+                    }
+                    selx2 = if row == selection_y2 {
+                        selection_x2
+                    } else {
+                        columns
+                    };
                 }
 
                 // Iterate characters and group into runs by style
@@ -567,14 +562,16 @@ pub extern "C" fn term_emulator_compute_draw_runs(
                         let is_high = (char_at_index & 0xFC00) == 0xD800;
                         chars_for_code_point = if is_high { 2 } else { 1 };
                         code_point = if is_high && current_char_index + 1 < space_used {
-                            ((char_at_index as u32 - 0xD800) << 10) | (text[current_char_index + 1] as u32 - 0xDC00) + 0x10000
+                            ((char_at_index as u32 - 0xD800) << 10)
+                                | (text[current_char_index + 1] as u32 - 0xDC00) + 0x10000
                         } else {
                             char_at_index as u32
                         };
                         code_point_wc_width = crate::wcwidth::width(code_point);
                     }
 
-                    let inside_cursor = line_cursor_x == column || (code_point_wc_width == 2 && line_cursor_x == column + 1);
+                    let inside_cursor = line_cursor_x == column
+                        || (code_point_wc_width == 2 && line_cursor_x == column + 1);
                     let inside_selection = column >= selx1 && column <= selx2;
                     let style = line.get_style(column);
 
@@ -586,7 +583,8 @@ pub extern "C" fn term_emulator_compute_draw_runs(
                         true
                     };
 
-                    if style != last_run_style || inside_cursor != last_run_inside_cursor
+                    if style != last_run_style
+                        || inside_cursor != last_run_inside_cursor
                         || inside_selection != last_run_inside_selection
                         || font_width_mismatch != last_run_font_width_mismatch
                         || first
@@ -597,7 +595,11 @@ pub extern "C" fn term_emulator_compute_draw_runs(
                             let chars_count = current_char_index - last_run_start_index;
                             let style_high = (last_run_style >> 32) as i32;
                             let style_low = (last_run_style & 0xFFFFFFFF) as i32;
-                            let cc = if last_run_inside_cursor { line_cursor_x } else { -1 };
+                            let cc = if last_run_inside_cursor {
+                                line_cursor_x
+                            } else {
+                                -1
+                            };
                             let flags = (if last_run_font_width_mismatch { 1 } else { 0 })
                                 | (if last_run_inside_selection { 2 } else { 0 });
 
@@ -628,7 +630,8 @@ pub extern "C" fn term_emulator_compute_draw_runs(
                     while current_char_index < space_used {
                         let ch = text[current_char_index];
                         let cp = if (ch & 0xFC00) == 0xD800 && current_char_index + 1 < space_used {
-                            ((ch as u32 - 0xD800) << 10) | (text[current_char_index + 1] as u32 - 0xDC00) + 0x10000
+                            ((ch as u32 - 0xD800) << 10)
+                                | (text[current_char_index + 1] as u32 - 0xDC00) + 0x10000
                         } else {
                             ch as u32
                         };
@@ -646,7 +649,11 @@ pub extern "C" fn term_emulator_compute_draw_runs(
                     let chars_count = current_char_index - last_run_start_index;
                     let style_high = (last_run_style >> 32) as i32;
                     let style_low = (last_run_style & 0xFFFFFFFF) as i32;
-                    let cc = if last_run_inside_cursor { line_cursor_x } else { -1 };
+                    let cc = if last_run_inside_cursor {
+                        line_cursor_x
+                    } else {
+                        -1
+                    };
                     let flags = (if last_run_font_width_mismatch { 1 } else { 0 })
                         | (if last_run_inside_selection { 2 } else { 0 });
 
@@ -681,11 +688,9 @@ pub extern "C" fn term_free_i32_buffer(buf: *mut i32, len: i32) {
     if buf.is_null() || len <= 0 {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            let slice = std::slice::from_raw_parts_mut(buf, len as usize);
-            let _ = Box::from_raw(slice as *mut [i32]);
-        }
+    catch_unwind_or(|| unsafe {
+        let slice = std::slice::from_raw_parts_mut(buf, len as usize);
+        let _ = Box::from_raw(slice as *mut [i32]);
     });
 }
 
@@ -933,10 +938,8 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorResize(
     if em.is_null() {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            (*em).resize(cols, rows, cell_width, cell_height);
-        }
+    catch_unwind_or(|| unsafe {
+        (*em).resize(cols, rows, cell_width, cell_height);
     });
 }
 
@@ -1008,10 +1011,8 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorSendMouseE
     if em.is_null() {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            (*em).send_mouse_event(_mouse_button, _column, _row, _pressed != 0);
-        }
+    catch_unwind_or(|| unsafe {
+        (*em).send_mouse_event(_mouse_button, _column, _row, _pressed != 0);
     });
 }
 
@@ -1038,10 +1039,8 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorClearScrol
     if em.is_null() {
         return;
     }
-    catch_unwind_or(|| {
-        unsafe {
-            (*em).clear_scroll_counter();
-        }
+    catch_unwind_or(|| unsafe {
+        (*em).clear_scroll_counter();
     });
 }
 
@@ -1087,7 +1086,8 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorComputeDra
     }
 
     let mut out_len: i32 = 0;
-    let buf = term_emulator_compute_draw_runs(em, top_row, sel_y1, sel_y2, sel_x1, sel_x2, &mut out_len);
+    let buf =
+        term_emulator_compute_draw_runs(em, top_row, sel_y1, sel_y2, sel_x1, sel_x2, &mut out_len);
 
     if buf.is_null() || out_len <= 0 {
         if !buf.is_null() {
@@ -1125,5 +1125,47 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorComputeDra
     }
 
     term_free_i32_buffer(buf, out_len);
+    java_array
+}
+
+/// JNI bridge: key_handler get_code
+/// Returns a byte array (jbyteArray) containing the escape sequence, or null if no mapping.
+#[no_mangle]
+pub extern "C" fn term_key_handler_get_code(
+    env: *mut core::ffi::c_void,
+    _cls: *mut core::ffi::c_void,
+    key_code: i32,
+    key_mode: i32,
+    cursor_app: bool,
+    keypad_app: bool,
+) -> *mut core::ffi::c_void {
+    let result = crate::key_handler::get_code(key_code, key_mode, cursor_app, keypad_app);
+    if result.is_empty() {
+        return core::ptr::null_mut();
+    }
+
+    let env_inner = env as *mut JniEnvInner;
+    let funcs = unsafe { (*env_inner).functions };
+    let func_table = funcs as *const *const core::ffi::c_void;
+
+    // NewByteArray(JNIEnv*, jsize) -> jbyteArray — JNI offset 169
+    let new_byte_array: extern "C" fn(*mut core::ffi::c_void, i32) -> *mut core::ffi::c_void =
+        unsafe { core::mem::transmute(*func_table.add(169)) };
+    // SetByteArrayRegion(JNIEnv*, jbyteArray, jsize, jsize, const jbyte*) — JNI offset 179
+    let set_byte_array_region: extern "C" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        i32,
+        i32,
+        *const u8,
+    ) = unsafe { core::mem::transmute(*func_table.add(179)) };
+
+    let len = result.len() as i32;
+    let java_array = new_byte_array(env, len);
+    if !java_array.is_null() {
+        unsafe {
+            set_byte_array_region(env, java_array, 0, len, result.as_ptr());
+        }
+    }
     java_array
 }

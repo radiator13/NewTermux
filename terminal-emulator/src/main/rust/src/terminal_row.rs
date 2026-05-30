@@ -4,7 +4,6 @@
 /// for quick access during rendering.
 ///
 /// Ported from Kotlin: TerminalRow.kt
-
 use crate::wcwidth;
 
 /// An immutable snapshot of a row's text and style data, used to avoid borrow conflicts
@@ -60,7 +59,11 @@ fn to_code_point(high: u16, low: u16) -> u32 {
 /// Return the number of UTF-16 code units needed to represent a code point.
 #[inline]
 fn char_count(code_point: u32) -> i32 {
-    if code_point >= 0x10000 { 2 } else { 1 }
+    if code_point >= 0x10000 {
+        2
+    } else {
+        1
+    }
 }
 
 /// Write a code point as UTF-16 code units into `buf` at `offset`.
@@ -480,9 +483,8 @@ impl TerminalRow {
                 self.set_char(column_to_set - 1, ' ' as u32, style);
             }
             // Check if we are overwriting the first half of a wide char starting at next column:
-            let overwriting_wide_char_in_next_column =
-                new_code_point_display_width == 2
-                    && self.wide_display_character_starting_at(column_to_set + 1);
+            let overwriting_wide_char_in_next_column = new_code_point_display_width == 2
+                && self.wide_display_character_starting_at(column_to_set + 1);
             if overwriting_wide_char_in_next_column {
                 self.set_char(column_to_set + 1, ' ' as u32, style);
             }
@@ -495,14 +497,13 @@ impl TerminalRow {
         // Get the number of elements in the text array this column uses now
         let old_characters_used_for_column: usize;
         if actual_column_to_set + old_code_point_display_width < self.columns {
-            let old_end_of_column_index =
-                self.find_start_of_column(actual_column_to_set + old_code_point_display_width)
-                    as usize;
+            let old_end_of_column_index = self
+                .find_start_of_column(actual_column_to_set + old_code_point_display_width)
+                as usize;
             old_characters_used_for_column = old_end_of_column_index - old_start_of_column_index;
         } else {
             // Last character.
-            old_characters_used_for_column =
-                self.space_used as usize - old_start_of_column_index;
+            old_characters_used_for_column = self.space_used as usize - old_start_of_column_index;
         }
 
         // If MAX_COMBINING_CHARACTERS_PER_COLUMN already exist, ignore additional combining chars.
@@ -528,8 +529,8 @@ impl TerminalRow {
         let old_next_column_index = old_start_of_column_index + old_characters_used_for_column;
         let new_next_column_index = old_start_of_column_index + new_characters_used_for_column;
 
-        let java_char_difference = new_characters_used_for_column as i32
-            - old_characters_used_for_column as i32;
+        let java_char_difference =
+            new_characters_used_for_column as i32 - old_characters_used_for_column as i32;
 
         if java_char_difference > 0 {
             // Shift the rest of the line right.
@@ -541,8 +542,8 @@ impl TerminalRow {
                 new_text[..old_next_column_index]
                     .copy_from_slice(&self.text[..old_next_column_index]);
                 // copy [old_next_column_index, space_used) -> [new_next_column_index, ...)
-                new_text[new_next_column_index
-                    ..new_next_column_index + old_characters_after_column]
+                new_text
+                    [new_next_column_index..new_next_column_index + old_characters_after_column]
                     .copy_from_slice(
                         &self.text[old_next_column_index
                             ..old_next_column_index + old_characters_after_column],
@@ -550,14 +551,18 @@ impl TerminalRow {
                 self.text = new_text;
             } else {
                 // Shift right in-place (must use copy_within for overlapping)
-                self.text
-                    .copy_within(old_next_column_index..old_next_column_index + old_characters_after_column, new_next_column_index);
+                self.text.copy_within(
+                    old_next_column_index..old_next_column_index + old_characters_after_column,
+                    new_next_column_index,
+                );
             }
         } else if java_char_difference < 0 {
             // Shift the rest of the line left.
             let remaining = self.space_used as usize - old_next_column_index;
-            self.text
-                .copy_within(old_next_column_index..old_next_column_index + remaining, new_next_column_index);
+            self.text.copy_within(
+                old_next_column_index..old_next_column_index + remaining,
+                new_next_column_index,
+            );
         }
         self.space_used += java_char_difference;
 
@@ -586,8 +591,10 @@ impl TerminalRow {
                 self.text = new_text;
             } else {
                 let remaining = self.space_used as usize - new_next_column_index;
-                self.text
-                    .copy_within(new_next_column_index..new_next_column_index + remaining, new_next_column_index + 1);
+                self.text.copy_within(
+                    new_next_column_index..new_next_column_index + remaining,
+                    new_next_column_index + 1,
+                );
             }
             self.text[new_next_column_index] = ' ' as u16;
             self.space_used += 1;
@@ -611,8 +618,10 @@ impl TerminalRow {
 
                 // Shift the array leftwards.
                 let remaining = self.space_used as usize - new_next_next_column_index;
-                self.text
-                    .copy_within(new_next_next_column_index..new_next_next_column_index + remaining, new_next_column_index);
+                self.text.copy_within(
+                    new_next_next_column_index..new_next_next_column_index + remaining,
+                    new_next_column_index,
+                );
                 self.space_used -= next_len as i32;
             }
         }

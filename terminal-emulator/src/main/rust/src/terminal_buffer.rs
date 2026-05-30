@@ -410,9 +410,7 @@ impl TerminalBuffer {
                         break;
                     }
                     let r = self.external_to_internal_row(i) as usize;
-                    if self.lines[r].is_none()
-                        || self.lines[r].as_ref().unwrap().is_blank()
-                    {
+                    if self.lines[r].is_none() || self.lines[r].as_ref().unwrap().is_blank() {
                         shift_down_of_top_row -= 1;
                         if shift_down_of_top_row == 0 {
                             break;
@@ -456,12 +454,8 @@ impl TerminalBuffer {
             self.screen_rows = new_rows;
         } else {
             // Copy away old state and update new:
-            let old_lines = std::mem::replace(
-                &mut self.lines,
-                (0..new_total_rows)
-                    .map(|_| None)
-                    .collect(),
-            );
+            let old_lines =
+                std::mem::replace(&mut self.lines, (0..new_total_rows).map(|_| None).collect());
             // Allocate new rows
             for i in 0..new_total_rows {
                 self.lines[i as usize] = Some(TerminalRow::new(new_columns, current_style));
@@ -505,9 +499,7 @@ impl TerminalBuffer {
                 // The cursor may only be on a non-null line, which we should not skip:
                 let should_skip = match old_line {
                     None => true,
-                    Some(line) => {
-                        !(!new_cursor_placed && cursor_at_this_row) && line.is_blank()
-                    }
+                    Some(line) => !(!new_cursor_placed && cursor_at_this_row) && line.is_blank(),
                 };
                 if should_skip {
                     skipped_blank_lines += 1;

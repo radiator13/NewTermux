@@ -102,7 +102,13 @@ pub struct TerminalEmulator {
 
 impl TerminalEmulator {
     /// Create a new terminal emulator with the given dimensions.
-    pub fn new(columns: i32, rows: i32, cell_width: i32, cell_height: i32, transcript_rows: i32) -> Box<Self> {
+    pub fn new(
+        columns: i32,
+        rows: i32,
+        cell_width: i32,
+        cell_height: i32,
+        transcript_rows: i32,
+    ) -> Box<Self> {
         let total_rows = rows + transcript_rows.max(0);
         let screen = TerminalBuffer::new(columns, total_rows, rows);
 
@@ -125,7 +131,7 @@ impl TerminalEmulator {
         colors[13] = 0xFFFF80FFu32 as i32; // bright magenta
         colors[14] = 0xFF80FFFFu32 as i32; // bright cyan
         colors[15] = 0xFFFFFFFFu32 as i32; // bright white
-        // Default foreground (index 256)
+                                           // Default foreground (index 256)
         colors[text_style::COLOR_INDEX_FOREGROUND as usize] = 0xFFC0C0C0u32 as i32;
         // Default background (index 257)
         colors[text_style::COLOR_INDEX_BACKGROUND as usize] = 0xFF000000u32 as i32;
@@ -493,8 +499,8 @@ impl TerminalEmulator {
                 // Foreground colors
                 30..=37 => {
                     let color_idx = params[i] - 30;
-                    self.current_style = (self.current_style & !(0x1FFu64 << 40))
-                        | ((color_idx as u64) << 40);
+                    self.current_style =
+                        (self.current_style & !(0x1FFu64 << 40)) | ((color_idx as u64) << 40);
                 }
                 38 => {
                     // Extended foreground: 38;5;n (256-color) or 38;2;r;g;b (truecolor)
@@ -522,8 +528,8 @@ impl TerminalEmulator {
                 // Background colors
                 40..=47 => {
                     let color_idx = params[i] - 40;
-                    self.current_style = (self.current_style & !(0x1FFu64 << 16))
-                        | ((color_idx as u64) << 16);
+                    self.current_style =
+                        (self.current_style & !(0x1FFu64 << 16)) | ((color_idx as u64) << 16);
                 }
                 48 => {
                     // Extended background: 48;5;n or 48;2;r;g;b
@@ -551,14 +557,14 @@ impl TerminalEmulator {
                 // Bright foreground
                 90..=97 => {
                     let color_idx = params[i] - 90 + 8;
-                    self.current_style = (self.current_style & !(0x1FFu64 << 40))
-                        | ((color_idx as u64) << 40);
+                    self.current_style =
+                        (self.current_style & !(0x1FFu64 << 40)) | ((color_idx as u64) << 40);
                 }
                 // Bright background
                 100..=107 => {
                     let color_idx = params[i] - 100 + 8;
-                    self.current_style = (self.current_style & !(0x1FFu64 << 16))
-                        | ((color_idx as u64) << 16);
+                    self.current_style =
+                        (self.current_style & !(0x1FFu64 << 16)) | ((color_idx as u64) << 16);
                 }
                 _ => {}
             }
@@ -607,7 +613,8 @@ impl TerminalEmulator {
                     // Switch to alternate screen
                     if self.alt_screen.is_none() {
                         let total_rows = self.rows + DEFAULT_TRANSCRIPT_ROWS;
-                        self.alt_screen = Some(TerminalBuffer::new(self.columns, total_rows, self.rows));
+                        self.alt_screen =
+                            Some(TerminalBuffer::new(self.columns, total_rows, self.rows));
                     }
                     self.alt_buffer_active = true;
                     self.cursor_row = 0;
@@ -675,22 +682,39 @@ impl TerminalEmulator {
             0 => {
                 // Erase from cursor to end of screen
                 // Erase rest of current line
-                self.screen_mut().block_set(cursor_col, cursor_row, cols - cursor_col, 1, b' ' as u32, style);
+                self.screen_mut().block_set(
+                    cursor_col,
+                    cursor_row,
+                    cols - cursor_col,
+                    1,
+                    b' ' as u32,
+                    style,
+                );
                 // Erase lines below
                 if cursor_row + 1 < rows {
-                    self.screen_mut().block_set(0, cursor_row + 1, cols, rows - cursor_row - 1, b' ' as u32, style);
+                    self.screen_mut().block_set(
+                        0,
+                        cursor_row + 1,
+                        cols,
+                        rows - cursor_row - 1,
+                        b' ' as u32,
+                        style,
+                    );
                 }
             }
             1 => {
                 // Erase from start to cursor
                 if cursor_row > 0 {
-                    self.screen_mut().block_set(0, 0, cols, cursor_row, b' ' as u32, style);
+                    self.screen_mut()
+                        .block_set(0, 0, cols, cursor_row, b' ' as u32, style);
                 }
-                self.screen_mut().block_set(0, cursor_row, cursor_col + 1, 1, b' ' as u32, style);
+                self.screen_mut()
+                    .block_set(0, cursor_row, cursor_col + 1, 1, b' ' as u32, style);
             }
             2 => {
                 // Erase entire screen
-                self.screen_mut().block_set(0, 0, cols, rows, b' ' as u32, style);
+                self.screen_mut()
+                    .block_set(0, 0, cols, rows, b' ' as u32, style);
             }
             3 => {
                 // Erase scrollback
@@ -709,15 +733,24 @@ impl TerminalEmulator {
         match mode {
             0 => {
                 // Erase from cursor to end of line
-                self.screen_mut().block_set(cursor_col, cursor_row, cols - cursor_col, 1, b' ' as u32, style);
+                self.screen_mut().block_set(
+                    cursor_col,
+                    cursor_row,
+                    cols - cursor_col,
+                    1,
+                    b' ' as u32,
+                    style,
+                );
             }
             1 => {
                 // Erase from start to cursor
-                self.screen_mut().block_set(0, cursor_row, cursor_col + 1, 1, b' ' as u32, style);
+                self.screen_mut()
+                    .block_set(0, cursor_row, cursor_col + 1, 1, b' ' as u32, style);
             }
             2 => {
                 // Erase entire line
-                self.screen_mut().block_set(0, cursor_row, cols, 1, b' ' as u32, style);
+                self.screen_mut()
+                    .block_set(0, cursor_row, cols, 1, b' ' as u32, style);
             }
             _ => {}
         }
@@ -839,13 +872,27 @@ impl TerminalEmulator {
         let mut cursor = [self.cursor_col, self.cursor_row];
         let current_style = self.current_style;
 
-        self.screen.resize(new_cols, new_rows, total_rows, &mut cursor, current_style, false);
+        self.screen.resize(
+            new_cols,
+            new_rows,
+            total_rows,
+            &mut cursor,
+            current_style,
+            false,
+        );
         self.cursor_col = cursor[0];
         self.cursor_row = cursor[1];
 
         if let Some(ref mut alt) = self.alt_screen {
             let mut alt_cursor = [0, 0];
-            alt.resize(new_cols, new_rows, total_rows, &mut alt_cursor, current_style, true);
+            alt.resize(
+                new_cols,
+                new_rows,
+                total_rows,
+                &mut alt_cursor,
+                current_style,
+                true,
+            );
         }
 
         self.columns = new_cols;
@@ -872,7 +919,16 @@ impl TerminalEmulator {
     }
 
     /// Get selected text from the screen buffer.
-    pub fn get_selected_text(&self, x1: i32, y1: i32, x2: i32, y2: i32, join_back: bool, join_full: bool) -> String {
-        self.screen().get_selected_text(x1, y1, x2, y2, join_back, join_full)
+    pub fn get_selected_text(
+        &self,
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        join_back: bool,
+        join_full: bool,
+    ) -> String {
+        self.screen()
+            .get_selected_text(x1, y1, x2, y2, join_back, join_full)
     }
 }

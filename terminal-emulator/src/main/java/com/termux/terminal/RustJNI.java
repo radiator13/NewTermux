@@ -232,21 +232,27 @@ public class RustJNI {
      * @param data   source byte array
      * @param offset start offset within the array
      * @param length number of bytes to write
+     * @return true if all data was written, false if the queue was closed before completion
      */
-    public static native void termByteQueueWrite(long queue, byte[] data, int offset, int length);
+    public static native boolean termByteQueueWrite(long queue, byte[] data, int offset, int length);
 
     /**
      * Read data from the byte queue.
      * @param queue    handle
      * @param buf      destination buffer
+     * @param maxLen   maximum number of bytes to read (typically buf.length)
      * @param blocking if true, block until data is available
-     * @return number of bytes read
+     * @return number of bytes read, or -1 if the queue was closed
      */
-    public static native int termByteQueueRead(long queue, byte[] buf, boolean blocking);
+    public static native int termByteQueueRead(long queue, byte[] buf, int maxLen, boolean blocking);
 
     /**
      * Close the byte queue (signals EOF to readers).
      * @param queue handle
      */
     public static native void termByteQueueClose(long queue);
+
+    // ── Key Handler ──────────────────────────────────────────────────────────
+    /** Get escape sequence bytes for keycode+modifiers. Returns null if no mapping. */
+    public static native byte[] termKeyHandlerGetCode(int keyCode, int keyMode, boolean cursorApp, boolean keypadApp);
 }

@@ -1,90 +1,71 @@
 package com.termux.terminal;
 
 /**
- * <p>
- * Encodes effects, foreground and background colors into a 64 bit long, which are stored for each cell in a terminal
- * row in {@link TerminalRow#mStyle}.
- * </p>
- * <p>
- * The bit layout is:
- * </p>
- * - 16 flags (11 currently used).
- * - 24 for foreground color (only 9 first bits if a color index).
- * - 24 for background color (only 9 first bits if a color index).
+ * Text style constants. The actual encoding/decoding lives in Rust (text_style.rs).
+ * These constants are used by TerminalColorScheme, TerminalColors, and TerminalRenderer.
  */
 public final class TextStyle {
 
-    public final static int CHARACTER_ATTRIBUTE_BOLD = 1;
-    public final static int CHARACTER_ATTRIBUTE_ITALIC = 1 << 1;
-    public final static int CHARACTER_ATTRIBUTE_UNDERLINE = 1 << 2;
-    public final static int CHARACTER_ATTRIBUTE_BLINK = 1 << 3;
-    public final static int CHARACTER_ATTRIBUTE_INVERSE = 1 << 4;
-    public final static int CHARACTER_ATTRIBUTE_INVISIBLE = 1 << 5;
-    public final static int CHARACTER_ATTRIBUTE_STRIKETHROUGH = 1 << 6;
-    /**
-     * The selective erase control functions (DECSED and DECSEL) can only erase characters defined as erasable.
-     * <p>
-     * This bit is set if DECSCA (Select Character Protection Attribute) has been used to define the characters that
-     * come after it as erasable from the screen.
-     * </p>
-     */
-    public final static int CHARACTER_ATTRIBUTE_PROTECTED = 1 << 7;
-    /** Dim colors. Also known as faint or half intensity. */
-    public final static int CHARACTER_ATTRIBUTE_DIM = 1 << 8;
-    /** If true (24-bit) color is used for the cell for foreground. */
-    private final static int CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND = 1 << 9;
-    /** If true (24-bit) color is used for the cell for foreground. */
-    private final static int CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND= 1 << 10;
+    // ── Effect flags ────────────────────────────────────────────────────────
+    public static final int CHARACTER_ATTRIBUTE_BOLD = 1;
+    public static final int CHARACTER_ATTRIBUTE_ITALIC = 1 << 1;
+    public static final int CHARACTER_ATTRIBUTE_UNDERLINE = 1 << 2;
+    public static final int CHARACTER_ATTRIBUTE_BLINK = 1 << 3;
+    public static final int CHARACTER_ATTRIBUTE_INVERSE = 1 << 4;
+    public static final int CHARACTER_ATTRIBUTE_INVISIBLE = 1 << 5;
+    public static final int CHARACTER_ATTRIBUTE_STRIKETHROUGH = 1 << 6;
+    public static final int CHARACTER_ATTRIBUTE_DIM = 1 << 7;
+    public static final int CHARACTER_ATTRIBUTE_HIDDEN = 1 << 8;
+    public static final int CHARACTER_ATTRIBUTE_OVERLINE = 1 << 9;
+    public static final int CHARACTER_ATTRIBUTE_UNDERLINE_DOUBLE = 1 << 10;
 
-    public final static int COLOR_INDEX_FOREGROUND = 256;
-    public final static int COLOR_INDEX_BACKGROUND = 257;
-    public final static int COLOR_INDEX_CURSOR = 258;
+    // Aliases for Rust naming convention
+    public static final int FX_BOLD = CHARACTER_ATTRIBUTE_BOLD;
+    public static final int FX_ITALIC = CHARACTER_ATTRIBUTE_ITALIC;
+    public static final int FX_UNDERLINE = CHARACTER_ATTRIBUTE_UNDERLINE;
+    public static final int FX_BLINK = CHARACTER_ATTRIBUTE_BLINK;
+    public static final int FX_INVERSE = CHARACTER_ATTRIBUTE_INVERSE;
+    public static final int FX_INVISIBLE = CHARACTER_ATTRIBUTE_INVISIBLE;
+    public static final int FX_STRIKETHROUGH = CHARACTER_ATTRIBUTE_STRIKETHROUGH;
+    public static final int FX_DIM = CHARACTER_ATTRIBUTE_DIM;
+    public static final int FX_HIDDEN = CHARACTER_ATTRIBUTE_HIDDEN;
+    public static final int FX_OVERLINE = CHARACTER_ATTRIBUTE_OVERLINE;
+    public static final int FX_UNDERLINE_DOUBLE = CHARACTER_ATTRIBUTE_UNDERLINE_DOUBLE;
 
-    /** The 256 standard color entries and the three special (foreground, background and cursor) ones. */
-    public final static int NUM_INDEXED_COLORS = 259;
+    // ── Color indices ───────────────────────────────────────────────────────
+    public static final int COLOR_INDEX_FOREGROUND = 256;
+    public static final int COLOR_INDEX_BACKGROUND = 257;
+    public static final int COLOR_INDEX_CURSOR = 258;
+    public static final int NUM_INDEXED_COLORS = 259;
 
-    /** Normal foreground and background colors and no effects. */
-    final static long NORMAL = encode(COLOR_INDEX_FOREGROUND, COLOR_INDEX_BACKGROUND, 0);
+    // ── Color encoding flags ────────────────────────────────────────────────
+    /** If set, the color value is a 24-bit RGB value. Otherwise it's an index. */
+    static final int COLOR_RGB = 1 << 25;
 
-    static long encode(int foreColor, int backColor, int effect) {
-        long result = effect & 0b111111111;
-        if ((0xff000000 & foreColor) == 0xff000000) {
-            // 24-bit color.
-            result |= CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND | ((foreColor & 0x00ffffffL) << 40L);
-        } else {
-            // Indexed color.
-            result |= (foreColor & 0b111111111L) << 40;
-        }
-        if ((0xff000000 & backColor) == 0xff000000) {
-            // 24-bit color.
-            result |= CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND | ((backColor & 0x00ffffffL) << 16L);
-        } else {
-            // Indexed color.
-            result |= (backColor & 0b111111111L) << 16L;
-        }
-
-        return result;
+    /** Encode a color value with the RGB flag. */
+    public static final long encode(int foreColor, int backColor, int effect) {
+        long style = effect & 0x7FFL;
+        style |= ((long) (backColor & 0x1FFFFFF)) << 16;
+        style |= ((long) (foreColor & 0x1FFFFFF)) << 40;
+        return style;
     }
 
-    public static int decodeForeColor(long style) {
-        if ((style & CHARACTER_ATTRIBUTE_TRUECOLOR_FOREGROUND) == 0) {
-            return (int) ((style >>> 40) & 0b111111111L);
-        } else {
-            return 0xff000000 | (int) ((style >>> 40) & 0x00ffffffL);
-        }
-
+    public static final int decodeForeColor(long style) {
+        return (int) ((style >>> 40) & 0x1FFFFFF);
     }
 
-    public static int decodeBackColor(long style) {
-        if ((style & CHARACTER_ATTRIBUTE_TRUECOLOR_BACKGROUND) == 0) {
-            return (int) ((style >>> 16) & 0b111111111L);
-        } else {
-            return 0xff000000 | (int) ((style >>> 16) & 0x00ffffffL);
-        }
+    public static final int decodeBackColor(long style) {
+        return (int) ((style >>> 16) & 0x1FFFFFF);
     }
 
-    public static int decodeEffect(long style) {
-        return (int) (style & 0b11111111111);
+    public static final int decodeEffect(long style) {
+        return (int) (style & 0x7FF);
     }
 
+    /** Check if the color is an RGB value (vs indexed). */
+    public static final boolean isColorRGB(int color) {
+        return (color & COLOR_RGB) != 0;
+    }
+
+    private TextStyle() {} // not instantiable
 }
