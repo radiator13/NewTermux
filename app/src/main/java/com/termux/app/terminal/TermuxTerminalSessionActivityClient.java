@@ -382,11 +382,11 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
                 workingDirectory = currentSession.getCwd();
             }
 
-            // Demo build: use the fake shell written to the demo's own files dir; also use a
-            // writable working directory since /data/data/com.termux/ is not accessible.
+            // Demo build: use /system/bin/sh (SELinux blocks exec() on app_data_file).
+            // The demo banner and prompt are written to the session after creation.
             String executablePath = null;
             if (BuildConfig.IS_DEMO) {
-                executablePath = new java.io.File(mActivity.getFilesDir(), "bin/bash").getAbsolutePath();
+                executablePath = "/system/bin/sh";
                 workingDirectory = mActivity.getFilesDir().getAbsolutePath();
             }
             TermuxSession newTermuxSession = service.createTermuxSession(executablePath, null, null, workingDirectory, isFailSafe, sessionName);
@@ -394,6 +394,24 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
             TerminalSession newTerminalSession = newTermuxSession.getTerminalSession();
             setCurrentSession(newTerminalSession);
+
+            // Demo build: write env setup + banner into the /system/bin/sh session
+            if (BuildConfig.IS_DEMO) {
+                String demoFilesDir = mActivity.getFilesDir().getAbsolutePath();
+                String envSetup =
+                    "export HOME=" + demoFilesDir + "\n" +
+                    "cd " + demoFilesDir + "\n" +
+                    "clear\n" +
+                    "echo ''\n" +
+                    "echo '  ╔══════════════════════════════════════════╗'\n" +
+                    "echo '  ║      NewTermux — Test / Coexist Mode     ║'\n" +
+                    "echo '  ║  Settings, toolbar & UI are fully live.  ║'\n" +
+                    "echo '  ║  Shell: /system/bin/sh                   ║'\n" +
+                    "echo '  ╚══════════════════════════════════════════╝'\n" +
+                    "echo ''\n" +
+                    "PS1='\\[\\e[1;32m\\]$ \\[\\e[0m\\]'\n";
+                newTerminalSession.write(envSetup.getBytes(), 0, envSetup.length());
+            }
 
             // Startup script — dot-source into the live shell if enabled and file exists
             if (NewTermuxSettings.isStartupScriptEnabled(mActivity)) {
