@@ -1101,15 +1101,13 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorComputeDra
     let env_inner = env as *mut JniEnvInner;
     let funcs = (*env_inner).functions;
 
-    // JNI function offsets (from jni.h):
-    // NewIntArray is at offset 173 (in pointer-sized units)
-    // SetIntArrayRegion is at offset 183
-    // These are standard JNI 1.6+ offsets.
+    // JNI function offsets (JNI 1.6 spec, confirmed on Android 16):
+    // NewIntArray = 179, SetIntArrayRegion = 211
     let func_table = funcs as *const *const core::ffi::c_void;
 
     // NewIntArray(JNIEnv*, jsize) -> jintArray
     let new_int_array: extern "C" fn(*mut core::ffi::c_void, i32) -> *mut core::ffi::c_void =
-        core::mem::transmute(*func_table.add(173));
+        core::mem::transmute(*func_table.add(179));
     // SetIntArrayRegion(JNIEnv*, jintArray, jsize, jsize, const jint*)
     let set_int_array_region: extern "C" fn(
         *mut core::ffi::c_void,
@@ -1117,7 +1115,7 @@ pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termEmulatorComputeDra
         i32,
         i32,
         *const i32,
-    ) = core::mem::transmute(*func_table.add(183));
+    ) = core::mem::transmute(*func_table.add(211));
 
     let java_array = new_int_array(env, out_len);
     if !java_array.is_null() {
@@ -1137,10 +1135,10 @@ pub extern "C" fn term_key_handler_get_code(
     _cls: *mut core::ffi::c_void,
     key_code: i32,
     key_mode: i32,
-    cursor_app: bool,
-    keypad_app: bool,
+    cursor_app: u8,
+    keypad_app: u8,
 ) -> *mut core::ffi::c_void {
-    let result = crate::key_handler::get_code(key_code, key_mode, cursor_app, keypad_app);
+    let result = crate::key_handler::get_code(key_code, key_mode, cursor_app != 0, keypad_app != 0);
     if result.is_empty() {
         return core::ptr::null_mut();
     }
@@ -1149,17 +1147,17 @@ pub extern "C" fn term_key_handler_get_code(
     let funcs = unsafe { (*env_inner).functions };
     let func_table = funcs as *const *const core::ffi::c_void;
 
-    // NewByteArray(JNIEnv*, jsize) -> jbyteArray — JNI offset 169
+    // JNI function table offsets (JNI 1.6 spec, confirmed on Android 16):
+    // NewByteArray = 176, SetByteArrayRegion = 208
     let new_byte_array: extern "C" fn(*mut core::ffi::c_void, i32) -> *mut core::ffi::c_void =
-        unsafe { core::mem::transmute(*func_table.add(169)) };
-    // SetByteArrayRegion(JNIEnv*, jbyteArray, jsize, jsize, const jbyte*) — JNI offset 179
+        unsafe { core::mem::transmute(*func_table.add(176)) };
     let set_byte_array_region: extern "C" fn(
         *mut core::ffi::c_void,
         *mut core::ffi::c_void,
         i32,
         i32,
         *const u8,
-    ) = unsafe { core::mem::transmute(*func_table.add(179)) };
+    ) = unsafe { core::mem::transmute(*func_table.add(208)) };
 
     let len = result.len() as i32;
     let java_array = new_byte_array(env, len);
