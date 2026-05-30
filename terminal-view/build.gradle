@@ -2,8 +2,8 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 
 android {
-    namespace "com.termux.view"
-    compileSdkVersion project.properties.compileSdkVersion.toInteger()
+    namespace = "com.termux.view"
+    compileSdkVersion = project.properties.compileSdkVersion.toInteger()
 
     dependencies {
         implementation "androidx.annotation:annotation:1.9.0"
@@ -11,21 +11,21 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion project.properties.minSdkVersion.toInteger()
-        targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        minSdkVersion = project.properties.minSdkVersion.toInteger()
+        targetSdkVersion = project.properties.targetSdkVersion.toInteger()
+        testInstrumentationRunner = "android.support.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     publishing {

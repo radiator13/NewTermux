@@ -4,7 +4,7 @@ apply plugin: 'maven-publish'
 android {
     namespace = "com.termux.shared"
 
-    compileSdkVersion project.properties.compileSdkVersion.toInteger()
+    compileSdkVersion = project.properties.compileSdkVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
 
     dependencies {
@@ -32,30 +32,34 @@ android {
     }
 
     defaultConfig {
-        compileSdkVersion project.properties.compileSdkVersion.toInteger()
-        minSdkVersion project.properties.minSdkVersion.toInteger()
-        targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        compileSdkVersion = project.properties.compileSdkVersion.toInteger()
+        minSdkVersion = project.properties.minSdkVersion.toInteger()
+        targetSdkVersion = project.properties.targetSdkVersion.toInteger()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             ndkBuild {
                 cppFlags ''
             }
         }
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 
     compileOptions {
         // Flag to enable support for the new language APIs
-        coreLibraryDesugaringEnabled true
+        coreLibraryDesugaringEnabled = true
 
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     externalNativeBuild {

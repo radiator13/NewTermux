@@ -1,0 +1,359 @@
+name: Build Coexist APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_OPTS: >-
+    -Dorg.gradle.daemon=true
+    -Dorg.gradle.parallel=true
+    -Dorg.gradle.caching=true
+    -Dorg.gradle.workers.max=4
+    -Dorg.gradle.jvmargs=-Xmx13G -XX:+UseParallelGC -XX:ParallelGCThreads=4
+  TERMUX_PACKAGE_VARIANT: apt-android-7
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            .gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-v1
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-
+            gradle-${{ runner.os }}-
+
+      - name: Cache bootstrap zips
+        uses: actions/cache@v5
+        with:
+          path: app/src/main/cpp/bootstrap-*.zip
+          key: bootstrap-${{ env.TERMUX_PACKAGE_VARIANT }}-2026.02.12-r1-v1
+          restore-keys: |
+            bootstrap-${{ env.TERMUX_PACKAGE_VARIANT }}-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Generate build timestamp
+        id: timestamp
+        run: echo "ts=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Start resource monitor
+        run: |
+          cat > /tmp/resource_monitor.sh << 'MONITOR_EOF'
+          #!/bin/bash
+          LOG="/tmp/resource_usage.csv"
+          echo "timestamp,cpu_user_pct,cpu_sys_pct,cpu_idle_pct,mem_total_mb,mem_used_mb,mem_free_mb,mem_available_mb,mem_usage_pct,swap_total_mb,swap_used_mb,disk_read_kb,disk_write_kb,disk_used_gb,disk_free_gb,load_1m,load_5m,load_15m,procs_running,procs_blocked,net_rx_kb,net_tx_kb,java_rss_mb,java_vsz_mb,gradle_daemon_count" > "$LOG"
+
+          PREV_NET_RX=0
+          PREV_NET_TX=0
+          FIRST_SAMPLE=1
+
+          while true; do
+            TS=$(date '+%H:%M:%S')
+
+            # CPU usage from /proc/stat (instant snapshot)
+            CPU_LINE=$(head -1 /proc/stat)
+            CPU_USER=$(echo "$CPU_LINE" | awk '{print $2}')
+            CPU_SYS=$(echo "$CPU_LINE" | awk '{print $4}')
+            CPU_IDLE=$(echo "$CPU_LINE" | awk '{print $5}')
+            CPU_TOTAL=$((CPU_USER + CPU_SYS + CPU_IDLE))
+            if [ "$CPU_TOTAL" -gt 0 ]; then
+              CPU_USER_PCT=$((CPU_USER * 100 / CPU_TOTAL))
+              CPU_SYS_PCT=$((CPU_SYS * 100 / CPU_TOTAL))
+              CPU_IDLE_PCT=$((CPU_IDLE * 100 / CPU_TOTAL))
+            else
+              CPU_USER_PCT=0; CPU_SYS_PCT=0; CPU_IDLE_PCT=100
+            fi
+
+            # Memory from /proc/meminfo
+            MEM_TOTAL=$(awk '/^MemTotal/ {print int($2/1024)}' /proc/meminfo)
+            MEM_FREE=$(awk '/^MemFree/ {print int($2/1024)}' /proc/meminfo)
+            MEM_AVAIL=$(awk '/^MemAvailable/ {print int($2/1024)}' /proc/meminfo)
+            MEM_BUFS=$(awk '/^Buffers/ {print int($2/1024)}' /proc/meminfo)
+            MEM_CACHED=$(awk '/^Cached/ {print int($2/1024)}' /proc/meminfo)
+            MEM_USED=$((MEM_TOTAL - MEM_FREE - MEM_BUFS - MEM_CACHED))
+            MEM_PCT=$((MEM_USED * 100 / MEM_TOTAL))
+
+            # Swap
+            SWAP_TOTAL=$(awk '/^SwapTotal/ {print int($2/1024)}' /proc/meminfo)
+            SWAP_FREE=$(awk '/^SwapFree/ {print int($2/1024)}' /proc/meminfo)
+            SWAP_USED=$((SWAP_TOTAL - SWAP_FREE))
+
+            # Disk I/O from /proc/diskstats (sda)
+            DISK_LINE=$(awk '/sda / {print $3, $6, $10}' /proc/diskstats 2>/dev/null || echo "0 0 0")
+            DISK_READ_SECTORS=$(echo "$DISK_LINE" | awk '{print $2}')
+            DISK_WRITE_SECTORS=$(echo "$DISK_LINE" | awk '{print $3}')
+            DISK_READ_KB=$((DISK_READ_SECTORS * 512 / 1024))
+            DISK_WRITE_KB=$((DISK_WRITE_SECTORS * 512 / 1024))
+
+            # Disk space
+            DISK_INFO=$(df -BG / 2>/dev/null | tail -1)
+            DISK_USED=$(echo "$DISK_INFO" | awk '{gsub("G",""); print $3}')
+            DISK_FREE=$(echo "$DISK_INFO" | awk '{gsub("G",""); print $4}')
+
+            # Load average
+            LOAD=$(cat /proc/loadavg)
+            LOAD_1M=$(echo "$LOAD" | awk '{print $1}')
+            LOAD_5M=$(echo "$LOAD" | awk '{print $2}')
+            LOAD_15M=$(echo "$LOAD" | awk '{print $3}')
+            PROCS_RUN=$(echo "$LOAD" | awk '{print split($4,a,"/") ; print a[1]}')
+            PROCS_BLOCK=$(echo "$LOAD" | awk '{print split($4,a,"/") ; print a[2]}')
+
+            # Network I/O from /proc/net/dev (eth0 or ens*)
+            NET_LINE=$(awk '/eth0:|ens[0-9]*:/ {rx+=$2; tx+=$10} END {print rx, tx}' /proc/net/dev)
+            NET_RX=$(echo "$NET_LINE" | awk '{print int($1/1024)}')
+            NET_TX=$(echo "$NET_LINE" | awk '{print int($2/1024)}')
+
+            # Java/Gradle process memory
+            JAVA_RSS=0; JAVA_VSZ=0; GRADLE_COUNT=0
+            while IFS= read -r line; do
+              PID=$(echo "$line" | awk '{print $1}')
+              if [ -n "$PID" ]; then
+                RSS=$(awk '/VmRSS/ {print int($2/1024)}' /proc/$PID/status 2>/dev/null || echo 0)
+                VSZ=$(awk '/VmSize/ {print int($2/1024)}' /proc/$PID/status 2>/dev/null || echo 0)
+                JAVA_RSS=$((JAVA_RSS + RSS))
+                JAVA_VSZ=$((JAVA_VSZ + VSZ))
+                GRADLE_COUNT=$((GRADLE_COUNT + 1))
+              fi
+            done < <(pgrep -f "gradle\|GradleDaemon" 2>/dev/null)
+
+            echo "$TS,$CPU_USER_PCT,$CPU_SYS_PCT,$CPU_IDLE_PCT,$MEM_TOTAL,$MEM_USED,$MEM_FREE,$MEM_AVAIL,$MEM_PCT,$SWAP_TOTAL,$SWAP_USED,$DISK_READ_KB,$DISK_WRITE_KB,$DISK_USED,$DISK_FREE,$LOAD_1M,$LOAD_5M,$LOAD_15M,$PROCS_RUN,$PROCS_BLOCK,$NET_RX,$NET_TX,$JAVA_RSS,$JAVA_VSZ,$GRADLE_COUNT" >> "$LOG"
+
+            sleep 3
+          done
+          MONITOR_EOF
+          chmod +x /tmp/resource_monitor.sh
+          bash /tmp/resource_monitor.sh &
+          echo $! > /tmp/monitor_pid
+          echo "Resource monitor started (PID: $(cat /tmp/monitor_pid))"
+
+      - name: System info before build
+        run: |
+          echo "=== SYSTEM INFO ==="
+          echo "CPU: $(nproc) cores"
+          echo "Model: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | xargs)"
+          echo "RAM: $(awk '/MemTotal/ {printf "%.1f GB", $2/1024/1024}' /proc/meminfo)"
+          echo "Swap: $(awk '/SwapTotal/ {printf "%.1f GB", $2/1024/1024}' /proc/meminfo)"
+          echo "Disk: $(df -h / | tail -1 | awk '{print $2 " total, " $3 " used, " $4 " free"}')"
+          echo "Kernel: $(uname -r)"
+          echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')"
+          echo "Java: $(java -version 2>&1 | head -1)"
+          echo ""
+          echo "=== DISK I/O SCHEDULER ==="
+          cat /sys/block/sda/queue/scheduler 2>/dev/null || echo "N/A"
+          echo ""
+          echo "=== MOUNT OPTIONS ==="
+          mount | grep ' / ' | head -1
+
+      - name: Build coexist APK (arm64-v8a only)
+        run: |
+          echo "=== BUILD START: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          START_TIME=$(date +%s)
+
+          ./gradlew assembleDemo \
+            --parallel \
+            --build-cache \
+            --no-daemon \
+            --stacktrace \
+            --warning-mode all \
+            -PsplitAPKsForDebugBuilds=1 \
+            -x lint
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "=== BUILD END: $(date '+%Y-%m-%d %H:%M:%S') ==="
+          echo "=== BUILD DURATION: ${DURATION}s ==="
+          echo "build_duration_s=$DURATION" >> /tmp/build_metrics.txt
+
+      - name: Stop resource monitor & generate report
+        if: always()
+        run: |
+          # Stop the monitor
+          kill $(cat /tmp/monitor_pid) 2>/dev/null || true
+          sleep 1
+
+          LOG="/tmp/resource_usage.csv"
+          if [ ! -f "$LOG" ]; then
+            echo "No resource log found"
+            exit 0
+          fi
+
+          TOTAL_SAMPLES=$(tail -n +2 "$LOG" | wc -l)
+          echo "=== RESOURCE USAGE REPORT ==="
+          echo "Samples collected: $TOTAL_SAMPLES"
+          echo ""
+
+          # Skip header for calculations
+          DATA=$(tail -n +2 "$LOG")
+
+          if [ "$TOTAL_SAMPLES" -eq 0 ]; then
+            echo "No samples collected"
+            exit 0
+          fi
+
+          echo "## CPU Usage"
+          CPU_USER_MAX=$(echo "$DATA" | awk -F, '{print $2}' | sort -n | tail -1)
+          CPU_USER_AVG=$(echo "$DATA" | awk -F, '{sum+=$2; n++} END {printf "%.1f", sum/n}')
+          CPU_SYS_MAX=$(echo "$DATA" | awk -F, '{print $3}' | sort -n | tail -1)
+          CPU_SYS_AVG=$(echo "$DATA" | awk -F, '{sum+=$3; n++} END {printf "%.1f", sum/n}')
+          CPU_IDLE_MIN=$(echo "$DATA" | awk -F, '{print $4}' | sort -n | head -1)
+          CPU_IDLE_AVG=$(echo "$DATA" | awk -F, '{sum+=$4; n++} END {printf "%.1f", sum/n}')
+          echo "  User:   avg=${CPU_USER_AVG}%  max=${CPU_USER_MAX}%"
+          echo "  System: avg=${CPU_SYS_AVG}%  max=${CPU_SYS_MAX}%"
+          echo "  Idle:   avg=${CPU_IDLE_AVG}%  min=${CPU_IDLE_MIN}%"
+          echo ""
+
+          echo "## Memory Usage"
+          MEM_TOTAL=$(echo "$DATA" | awk -F, '{print $5}' | head -1)
+          MEM_USED_MAX=$(echo "$DATA" | awk -F, '{print $6}' | sort -n | tail -1)
+          MEM_USED_AVG=$(echo "$DATA" | awk -F, '{sum+=$6; n++} END {printf "%.0f", sum/n}')
+          MEM_AVAIL_MIN=$(echo "$DATA" | awk -F, '{print $8}' | sort -n | head -1)
+          MEM_PCT_MAX=$(echo "$DATA" | awk -F, '{print $9}' | sort -n | tail -1)
+          MEM_PCT_AVG=$(echo "$DATA" | awk -F, '{sum+=$9; n++} END {printf "%.1f", sum/n}')
+          echo "  Total:      ${MEM_TOTAL} MB"
+          echo "  Used:       avg=${MEM_USED_AVG} MB  peak=${MEM_USED_MAX} MB  (${MEM_PCT_AVG}% avg, ${MEM_PCT_MAX}% peak)"
+          echo "  Available:  min=${MEM_AVAIL_MIN} MB"
+          echo ""
+
+          echo "## Swap Usage"
+          SWAP_TOTAL=$(echo "$DATA" | awk -F, '{print $10}' | head -1)
+          SWAP_USED_MAX=$(echo "$DATA" | awk -F, '{print $11}' | sort -n | tail -1)
+          SWAP_USED_AVG=$(echo "$DATA" | awk -F, '{sum+=$11; n++} END {printf "%.0f", sum/n}')
+          echo "  Total: ${SWAP_TOTAL} MB"
+          echo "  Used:  avg=${SWAP_USED_AVG} MB  peak=${SWAP_USED_MAX} MB"
+          echo ""
+
+          echo "## Disk I/O (cumulative sectors from /proc/diskstats)"
+          DISK_READ_MAX=$(echo "$DATA" | awk -F, '{print $12}' | sort -n | tail -1)
+          DISK_WRITE_MAX=$(echo "$DATA" | awk -F, '{print $13}' | sort -n | tail -1)
+          DISK_READ_FIRST=$(echo "$DATA" | awk -F, '{print $12}' | head -1)
+          DISK_WRITE_FIRST=$(echo "$DATA" | awk -F, '{print $13}' | head -1)
+          DISK_READ_DELTA=$(( (DISK_READ_MAX - DISK_READ_FIRST) ))
+          DISK_WRITE_DELTA=$(( (DISK_WRITE_MAX - DISK_WRITE_FIRST) ))
+          echo "  Read:  ${DISK_READ_DELTA} KB delta"
+          echo "  Write: ${DISK_WRITE_DELTA} KB delta"
+          echo ""
+
+          echo "## Disk Space"
+          DISK_USED=$(echo "$DATA" | awk -F, '{print $14}' | sort -n | tail -1)
+          DISK_FREE=$(echo "$DATA" | awk -F, '{print $15}' | sort -n | head -1)
+          echo "  Used: ${DISK_USED} GB  Free (min): ${DISK_FREE} GB"
+          echo ""
+
+          echo "## Load Average"
+          LOAD_MAX=$(echo "$DATA" | awk -F, '{print $16}' | sort -n | tail -1)
+          LOAD_AVG=$(echo "$DATA" | awk -F, '{sum+=$16; n++} END {printf "%.2f", sum/n}')
+          PROCS_RUN_MAX=$(echo "$DATA" | awk -F, '{print $18}' | sort -n | tail -1)
+          echo "  1m avg: avg=${LOAD_AVG}  peak=${LOAD_MAX}"
+          echo "  Procs running (peak): ${PROCS_RUN_MAX}"
+          echo ""
+
+          echo "## Java/Gradle Process Memory"
+          JAVA_RSS_MAX=$(echo "$DATA" | awk -F, '{print $23}' | sort -n | tail -1)
+          JAVA_RSS_AVG=$(echo "$DATA" | awk -F, '{sum+=$23; n++} END {printf "%.0f", sum/n}')
+          JAVA_VSZ_MAX=$(echo "$DATA" | awk -F, '{print $24}' | sort -n | tail -1)
+          GRADLE_MAX=$(echo "$DATA" | awk -F, '{print $25}' | sort -n | tail -1)
+          echo "  RSS:  avg=${JAVA_RSS_AVG} MB  peak=${JAVA_RSS_MAX} MB"
+          echo "  VSZ:  peak=${JAVA_VSZ_MAX} MB"
+          echo "  Gradle daemon count (peak): ${GRADLE_MAX}"
+          echo ""
+
+          echo "## Network I/O (cumulative from /proc/net/dev)"
+          NET_RX_MAX=$(echo "$DATA" | awk -F, '{print $21}' | sort -n | tail -1)
+          NET_TX_MAX=$(echo "$DATA" | awk -F, '{print $22}' | sort -n | tail -1)
+          NET_RX_FIRST=$(echo "$DATA" | awk -F, '{print $21}' | head -1)
+          NET_TX_FIRST=$(echo "$DATA" | awk -F, '{print $22}' | head -1)
+          NET_RX_DELTA=$((NET_RX_MAX - NET_RX_FIRST))
+          NET_TX_DELTA=$((NET_TX_MAX - NET_TX_FIRST))
+          echo "  Downloaded: ${NET_RX_DELTA} KB"
+          echo "  Uploaded:   ${NET_TX_DELTA} KB"
+          echo ""
+
+          # Write to GitHub Step Summary
+          {
+            echo ""
+            echo "## Resource Usage During Build"
+            echo "| Metric | Average | Peak |"
+            echo "|--------|---------|------|"
+            echo "| CPU User % | ${CPU_USER_AVG}% | ${CPU_USER_MAX}% |"
+            echo "| CPU System % | ${CPU_SYS_AVG}% | ${CPU_SYS_MAX}% |"
+            echo "| CPU Idle % | ${CPU_IDLE_AVG}% | ${CPU_IDLE_MIN}% (min) |"
+            echo "| Memory Used | ${MEM_USED_AVG} MB | ${MEM_USED_MAX} MB |"
+            echo "| Memory Usage % | ${MEM_PCT_AVG}% | ${MEM_PCT_MAX}% |"
+            echo "| Memory Available (min) | - | ${MEM_AVAIL_MIN} MB |"
+            echo "| Swap Used | ${SWAP_USED_AVG} MB | ${SWAP_USED_MAX} MB |"
+            echo "| Disk Read (delta) | - | ${DISK_READ_DELTA} KB |"
+            echo "| Disk Write (delta) | - | ${DISK_WRITE_DELTA} KB |"
+            echo "| Load Average (1m) | ${LOAD_AVG} | ${LOAD_MAX} |"
+            echo "| Java RSS | ${JAVA_RSS_AVG} MB | ${JAVA_RSS_MAX} MB |"
+            echo "| Java VSZ (peak) | - | ${JAVA_VSZ_MAX} MB |"
+            echo "| Network Downloaded | - | ${NET_RX_DELTA} KB |"
+            echo "| Network Uploaded | - | ${NET_TX_DELTA} KB |"
+            echo "| Samples | $TOTAL_SAMPLES | - |"
+          } >> $GITHUB_STEP_SUMMARY
+
+      - name: List APK output
+        run: |
+          echo "=== All files under app/build/outputs ==="
+          find app/build/outputs -type f | head -50
+          echo "=== APK files ==="
+          find app/build/outputs -name '*.apk' -type f -exec ls -lh {} \;
+
+      - name: Rename APKs with timestamp
+        run: |
+          find app/build/outputs -name '*.apk' -type f | while read f; do
+            dir=$(dirname "$f")
+            base=$(basename "$f" .apk)
+            mv "$f" "${dir}/${base}_${{ steps.timestamp.outputs.ts }}.apk"
+          done
+          echo "### APKs built:" >> $GITHUB_STEP_SUMMARY
+          find app/build/outputs -name '*.apk' -type f -exec ls -lh {} \; | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: Upload coexist APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: newtermux-coexist-arm64-${{ steps.timestamp.outputs.ts }}
+          path: app/build/outputs/apk/**/*.apk
+          retention-days: 30
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant | coexist (demo) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | com.termux.demo |" >> $GITHUB_STEP_SUMMARY
+          echo "| ABI | arm64-v8a |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | ${{ steps.timestamp.outputs.ts }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| JVM Heap | 13G |" >> $GITHUB_STEP_SUMMARY
+          if [ -f /tmp/build_metrics.txt ]; then
+            cat /tmp/build_metrics.txt | while IFS='=' read k v; do
+              echo "| $k | $v |" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
