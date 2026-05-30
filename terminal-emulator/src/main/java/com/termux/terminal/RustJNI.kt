@@ -255,4 +255,8 @@ object RustJNI {
     // -- Key Handler --
     /** Get escape sequence bytes for keycode+modifiers. Returns null if no mapping. */
     @JvmStatic external fun termKeyHandlerGetCode(keyCode: Int, keyMode: Int, cursorApp: Boolean, keypadApp: Boolean): ByteArray?
+
+    // --- Argument Tokenizer (Rust) ---
+    /** Tokenize a shell command string. Returns String[] of arguments. */
+    @JvmStatic external fun termArgTokenizerTokenize(input: String, doStringify: Boolean): Array<String>?
 }

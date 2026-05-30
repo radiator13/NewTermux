@@ -3,6 +3,7 @@
 //! High-performance terminal emulator core ported from Kotlin.
 //! Designed to be called via C FFI from Android/Kotlin.
 
+pub mod argument_tokenizer;
 pub mod byte_queue;
 pub mod ffi;
 pub mod key_handler;

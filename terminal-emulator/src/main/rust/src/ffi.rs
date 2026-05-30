@@ -1168,3 +1168,95 @@ pub extern "C" fn term_key_handler_get_code(
     }
     java_array
 }
+
+// ======================== ARGUMENT TOKENIZER ========================
+
+/// JNI wrapper: tokenize a shell command string and return as a Java String[].
+pub unsafe extern "C" fn Java_com_termux_terminal_RustJNI_termArgTokenizerTokenize(
+    env: *mut core::ffi::c_void,
+    _cls: *mut core::ffi::c_void,
+    input: *mut core::ffi::c_void,
+    do_stringify: u8,
+) -> *mut core::ffi::c_void {
+    if input.is_null() {
+        return core::ptr::null_mut();
+    }
+
+    let env_inner = env as *mut JniEnvInner;
+    let funcs = (*env_inner).functions;
+    let func_table = funcs as *const *const core::ffi::c_void;
+
+    // JNI function offsets (JNI 1.6 spec, confirmed on Android 16):
+    // GetStringUTFChars = 169, ReleaseStringUTFChars = 170
+    // FindClass = 6, NewObjectArray = 173, SetObjectArrayElement = 176
+    // NewStringUTF = 167
+    let get_string_utf_chars: extern "C" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *mut u8,
+    ) -> *const u8 = core::mem::transmute(*func_table.add(169));
+    let release_string_utf_chars: extern "C" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        *const u8,
+    ) = core::mem::transmute(*func_table.add(170));
+    let find_class: extern "C" fn(
+        *mut core::ffi::c_void,
+        *const u8,
+    ) -> *mut core::ffi::c_void = core::mem::transmute(*func_table.add(6));
+    let new_object_array: extern "C" fn(
+        *mut core::ffi::c_void,
+        i32,
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+    ) -> *mut core::ffi::c_void = core::mem::transmute(*func_table.add(173));
+    let set_object_array_element: extern "C" fn(
+        *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        i32,
+        *mut core::ffi::c_void,
+    ) = core::mem::transmute(*func_table.add(176));
+    let new_string_utf: extern "C" fn(
+        *mut core::ffi::c_void,
+        *const u8,
+    ) -> *mut core::ffi::c_void = core::mem::transmute(*func_table.add(167));
+
+    // Read Java String -> Rust &str
+    let chars = get_string_utf_chars(env, input, core::ptr::null_mut());
+    if chars.is_null() {
+        return core::ptr::null_mut();
+    }
+    let cstr = core::ffi::CStr::from_ptr(chars as *const core::ffi::c_char);
+    let input_str = cstr.to_str().unwrap_or("");
+
+    // Tokenize
+    let tokens = if do_stringify != 0 {
+        crate::argument_tokenizer::tokenize_stringify(input_str)
+    } else {
+        crate::argument_tokenizer::tokenize(input_str)
+    };
+
+    release_string_utf_chars(env, input, chars);
+
+    // Create Java String[] array
+    let string_class = find_class(env, b"java/lang/String\0".as_ptr());
+    if string_class.is_null() {
+        return core::ptr::null_mut();
+    }
+    let len = tokens.len() as i32;
+    let array = new_object_array(env, len, string_class, core::ptr::null_mut());
+    if array.is_null() {
+        return core::ptr::null_mut();
+    }
+
+    // Fill array with tokens
+    for (i, token) in tokens.iter().enumerate() {
+        let null_term = format!("{}\0", token);
+        let jstr = new_string_utf(env, null_term.as_ptr());
+        if !jstr.is_null() {
+            set_object_array_element(env, array, i as i32, jstr);
+        }
+    }
+
+    array
+}
